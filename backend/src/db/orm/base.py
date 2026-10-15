@@ -2,6 +2,7 @@
 
 # backend/src/db/orm/base.py
 
+from __future__ import annotations
 
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase

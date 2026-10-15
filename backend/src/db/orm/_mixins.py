@@ -2,6 +2,8 @@
 
 # backend/src/db/orm/_mixins.py
 
+from __future__ import annotations
+
 import uuid
 from datetime import datetime
 from typing import Optional

@@ -3,12 +3,14 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.database import DATABASE_URL
-from app.models import Base
+from backend.src.config.settings import Settings
+from backend.src.db.orm import tables  # noqa: F401 # type: ignore[reportUnusedImport]
+from backend.src.db.orm.base import Base
 
 config = context.config
 # '%' must be escaped for ConfigParser (passwords can contain it)
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+config.set_main_option(
+    "sqlalchemy.url", Settings.require_database().replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

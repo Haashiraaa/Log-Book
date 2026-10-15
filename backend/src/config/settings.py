@@ -1,6 +1,8 @@
 
 # backend/src/config/settings.py
 
+from __future__ import annotations
+
 import os
 from dotenv import load_dotenv
 from backend.src.exceptions.errors import EnvVariableError

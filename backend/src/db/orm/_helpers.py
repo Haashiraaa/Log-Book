@@ -2,6 +2,7 @@
 
 # backend/src/db/orm/_helpers.py
 
+from __future__ import annotations
 import re
 
 
