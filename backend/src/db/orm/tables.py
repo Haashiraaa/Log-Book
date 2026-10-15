@@ -27,8 +27,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    LargeBinary,
-    MetaData,
     Numeric,
     String,
     UniqueConstraint,
@@ -36,24 +34,12 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
-
-# --------------------------------------------------------------------------
-# Base + naming convention (keeps Alembic migrations stable and diffable)
-# --------------------------------------------------------------------------
-
-NAMING_CONVENTION = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s",
-}
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 
-class Base(DeclarativeBase):
-    metadata = MetaData(naming_convention=NAMING_CONVENTION)
-
+from backend.src.db.orm.base import Base
+from backend.src.db.orm._mixins import EntryMixin, TimestampMixin
+from backend.src.db.orm._helpers import normalize_code, normalize_plate
 
 # --------------------------------------------------------------------------
 # Helpers
@@ -61,72 +47,6 @@ class Base(DeclarativeBase):
 
 ROLE_OFFICER = "officer"
 ROLE_CSO = "cso"
-
-
-def normalize_plate(raw: str) -> str:
-    """'abc-123 xy' -> 'ABC123XY'. Typos in separators must not create
-    duplicate truck records and break the 'returning truck' lookup."""
-    return re.sub(r"[^A-Z0-9]", "", raw.upper())
-
-
-def normalize_code(raw: str) -> str:
-    """Facility / officer / staff codes are case-insensitive for typing."""
-    return raw.strip().upper()
-
-
-# --------------------------------------------------------------------------
-# Mixins
-# --------------------------------------------------------------------------
-
-
-class TimestampMixin:
-    """Server-side timestamps. `updated_at` is what /sync/pull filters on.
-
-    NOTE: when you upsert with `insert(...).on_conflict_do_update(...)`, set
-    `updated_at=func.now()` explicitly in the `set_` dict. Core upserts do not
-    reliably trigger the ORM-level `onupdate`.
-    """
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
-
-
-class EntryMixin:
-    """Columns shared by every sign-in / sign-out record.
-
-    No CHECK that signed_out_at >= signed_in_at on purpose: phones working
-    offline can have wrong clocks, and rejecting a record at sync time would
-    block the guard's whole queue. Validate softly in the app and flag odd
-    rows in reports instead.
-    """
-
-    facility_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("facilities.id", ondelete="RESTRICT"), nullable=False
-    )
-    signed_in_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    signed_out_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    # PNG bytes. deferred=True so list queries don't drag blobs around.
-    signature_in: Mapped[Optional[bytes]] = mapped_column(
-        LargeBinary, nullable=True, deferred=True
-    )
-    signed_in_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("officers.id", ondelete="RESTRICT"), nullable=False
-    )
-    signed_out_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        Uuid, ForeignKey("officers.id", ondelete="RESTRICT"), nullable=True
-    )
-    device_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
 
 # --------------------------------------------------------------------------
@@ -137,8 +57,10 @@ class EntryMixin:
 class Facility(TimestampMixin, Base):
     __tablename__ = "facilities"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. CNG-BEN-01
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
+    code: Mapped[str] = mapped_column(
+        String(32), nullable=False)  # e.g. CNG-BEN-01
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     is_active: Mapped[bool] = mapped_column(
         default=True, server_default=text("true"), nullable=False
@@ -161,11 +83,13 @@ class Officer(TimestampMixin, Base):
 
     __tablename__ = "officers"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
     facility_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, ForeignKey("facilities.id", ondelete="RESTRICT"), nullable=True
     )
-    officer_code: Mapped[str] = mapped_column(String(32), nullable=False)  # e.g. OFF-014
+    officer_code: Mapped[str] = mapped_column(
+        String(32), nullable=False)  # e.g. OFF-014
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     pin_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(
@@ -210,12 +134,15 @@ class OfficerSession(Base):
 
     __tablename__ = "officer_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
     officer_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("officers.id", ondelete="CASCADE"), nullable=False
     )
-    refresh_token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
-    device_label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    refresh_token_hash: Mapped[str] = mapped_column(
+        String(128), nullable=False)
+    device_label: Mapped[Optional[str]] = mapped_column(
+        String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -248,13 +175,16 @@ class Truck(TimestampMixin, Base):
 
     __tablename__ = "trucks"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
     facility_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("facilities.id", ondelete="RESTRICT"), nullable=False
     )
-    plate_number: Mapped[str] = mapped_column(String(20), nullable=False)  # normalized
+    plate_number: Mapped[str] = mapped_column(
+        String(20), nullable=False)  # normalized
     driver_name: Mapped[str] = mapped_column(String(150), nullable=False)
-    driver_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    driver_phone: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True)
     company: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     __table_args__ = (
@@ -282,7 +212,8 @@ class TruckEntry(EntryMixin, TimestampMixin, Base):
     )
     plate_number: Mapped[str] = mapped_column(String(20), nullable=False)
     driver_name: Mapped[str] = mapped_column(String(150), nullable=False)
-    driver_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    driver_phone: Mapped[Optional[str]] = mapped_column(
+        String(32), nullable=True)
     company: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     scm_purchased: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 2), nullable=True
@@ -292,9 +223,12 @@ class TruckEntry(EntryMixin, TimestampMixin, Base):
         CheckConstraint(
             "scm_purchased IS NULL OR scm_purchased >= 0", name="scm_non_negative"
         ),
-        Index("ix_truck_entries_facility_signed_in", "facility_id", "signed_in_at"),
-        Index("ix_truck_entries_facility_updated", "facility_id", "updated_at"),
-        Index("ix_truck_entries_facility_plate", "facility_id", "plate_number"),
+        Index("ix_truck_entries_facility_signed_in",
+              "facility_id", "signed_in_at"),
+        Index("ix_truck_entries_facility_updated",
+              "facility_id", "updated_at"),
+        Index("ix_truck_entries_facility_plate",
+              "facility_id", "plate_number"),
         # "Trucks currently inside" stays fast however big the table gets.
         Index(
             "ix_truck_entries_open",
@@ -316,18 +250,23 @@ class TruckEntry(EntryMixin, TimestampMixin, Base):
 class VisitorEntry(EntryMixin, TimestampMixin, Base):
     __tablename__ = "visitor_entries"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    organization: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    organization: Mapped[Optional[str]] = mapped_column(
+        String(200), nullable=True)
     purpose: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
-    person_visited: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    person_visited: Mapped[Optional[str]] = mapped_column(
+        String(150), nullable=True)
     id_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     id_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
-        Index("ix_visitor_entries_facility_signed_in", "facility_id", "signed_in_at"),
-        Index("ix_visitor_entries_facility_updated", "facility_id", "updated_at"),
+        Index("ix_visitor_entries_facility_signed_in",
+              "facility_id", "signed_in_at"),
+        Index("ix_visitor_entries_facility_updated",
+              "facility_id", "updated_at"),
         Index(
             "ix_visitor_entries_open",
             "facility_id",
@@ -344,13 +283,15 @@ class VisitorEntry(EntryMixin, TimestampMixin, Base):
 class Staff(TimestampMixin, Base):
     __tablename__ = "staff"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
     facility_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("facilities.id", ondelete="RESTRICT"), nullable=False
     )
     staff_code: Mapped[str] = mapped_column(String(32), nullable=False)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
-    department: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    department: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(
         default=True, server_default=text("true"), nullable=False
     )
@@ -369,18 +310,20 @@ class Staff(TimestampMixin, Base):
 class StaffEntry(EntryMixin, TimestampMixin, Base):
     __tablename__ = "staff_entries"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4)
     staff_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("staff.id", ondelete="RESTRICT"), nullable=False
     )
 
     __table_args__ = (
-        Index("ix_staff_entries_facility_signed_in", "facility_id", "signed_in_at"),
-        Index("ix_staff_entries_facility_updated", "facility_id", "updated_at"),
+        Index("ix_staff_entries_facility_signed_in",
+              "facility_id", "signed_in_at"),
+        Index("ix_staff_entries_facility_updated",
+              "facility_id", "updated_at"),
         Index(
             "ix_staff_entries_open",
             "facility_id",
             postgresql_where=text("signed_out_at IS NULL"),
         ),
     )
-
