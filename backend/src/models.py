@@ -17,7 +17,10 @@ table (see tables.py).
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from enum import Enum
+from dataclasses import dataclass
 
 
 # ---- enum models ----
@@ -28,3 +31,11 @@ class Role(str, Enum):
 
     OFFICER = "officer"
     CSO = "cso"
+
+
+# ----- dataclass models -----
+@dataclass(frozen=True)
+class AccessClaims:
+    officer_id: uuid.UUID
+    session_id: uuid.UUID
+    expires_at: datetime
