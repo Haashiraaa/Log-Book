@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 import re
+from enum import Enum
 
 
 def normalize_plate(raw: str) -> str:
@@ -15,3 +16,8 @@ def normalize_plate(raw: str) -> str:
 def normalize_code(raw: str) -> str:
     """Facility / officer / staff codes are case-insensitive for typing."""
     return raw.strip().upper()
+
+
+def enum_values(enum_cls: type[Enum]) -> list[str]:
+    """Store the enum VALUES ('officer'), not the member NAMES ('OFFICER')."""
+    return [member.value for member in enum_cls]

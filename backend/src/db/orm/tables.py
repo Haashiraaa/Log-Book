@@ -1,3 +1,7 @@
+
+
+# backend/src/db/orm/tables.py
+
 """
 Gate-log database models (SQLAlchemy 2.0 style, PostgreSQL).
 
@@ -13,9 +17,20 @@ Design rules baked in here:
 * All timestamps are timezone-aware and stored in UTC. Convert to Lagos time
   (UTC+1) only for display.
 * Entries are never deleted. A security log that can lose rows is not a log.
+* Truck / staff references on an entry are composite foreign keys that include
+  facility_id, so the database itself refuses an entry that points at another
+  facility's truck or staff member.
+
+Access model (officers table):
+
+* role      -> Role.OFFICER (scoped to one facility) or Role.CSO (read-only,
+               all facilities).
+* is_admin  -> additive flag. Admins see all facilities like the CSO AND get
+               admin-only features (manage facilities/officers, reset PINs,
+               revoke sessions). Set it ONLY from a seed script / CLI, never
+               from an API request body.
 """
 
-import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -24,7 +39,9 @@ from typing import Optional
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
+    Enum as SAEnum,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -36,17 +53,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
-
-from backend.src.db.orm.base import Base
+from backend.src.db.orm._helpers import normalize_code, normalize_plate, enum_values
 from backend.src.db.orm._mixins import EntryMixin, TimestampMixin
-from backend.src.db.orm._helpers import normalize_code, normalize_plate
+from backend.src.db.orm.base import Base
+from backend.src.models import Role
 
-# --------------------------------------------------------------------------
-# Helpers
-# --------------------------------------------------------------------------
 
-ROLE_OFFICER = "officer"
-ROLE_CSO = "cso"
+# Built from the enum, so the CHECK constraint can never drift from Role.
+_ROLE_VALUES_SQL = ", ".join(f"'{r.value}'" for r in Role)
 
 
 # --------------------------------------------------------------------------
@@ -74,11 +88,14 @@ class Facility(TimestampMixin, Base):
 
 
 class Officer(TimestampMixin, Base):
-    """A security officer, or the CSO.
+    """A security officer, the CSO, or an admin.
 
     Login = (facility.code, officer_code, PIN). The pair (facility_id,
     officer_code) is unique, so an officer code only means something inside
-    its own facility. The CSO has facility_id NULL and role 'cso'.
+    its own facility.
+
+    CSO and admin rows may have facility_id NULL ("global" accounts). A plain
+    officer must belong to a facility (enforced by a CHECK constraint).
     """
 
     __tablename__ = "officers"
@@ -92,8 +109,23 @@ class Officer(TimestampMixin, Base):
         String(32), nullable=False)  # e.g. OFF-014
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     pin_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(
-        String(16), default=ROLE_OFFICER, server_default=ROLE_OFFICER, nullable=False
+    role: Mapped[Role] = mapped_column(
+        # native_enum=False -> plain VARCHAR. A native Postgres ENUM is painful
+        # to change later (ALTER TYPE cannot run inside a migration transaction).
+        SAEnum(
+            Role,
+            name="officer_role",
+            native_enum=False,
+            length=16,
+            values_callable=enum_values,
+            validate_strings=True,
+        ),
+        default=Role.OFFICER,
+        server_default=Role.OFFICER.value,
+        nullable=False,
+    )
+    is_admin: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false"), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(
         default=True, server_default=text("true"), nullable=False
@@ -109,23 +141,30 @@ class Officer(TimestampMixin, Base):
         UniqueConstraint(
             "facility_id", "officer_code", name="uq_officers_facility_id_officer_code"
         ),
-        # NULL facility_id rows (the CSO) are "distinct" to Postgres, so the
+        # NULL facility_id rows (CSO / admins) are "distinct" to Postgres, so the
         # constraint above does not protect them. This partial index does.
         Index(
-            "uq_officers_cso_officer_code",
+            "uq_officers_global_officer_code",
             "officer_code",
             unique=True,
             postgresql_where=text("facility_id IS NULL"),
         ),
-        CheckConstraint("role IN ('officer', 'cso')", name="role_valid"),
+        CheckConstraint(f"role IN ({_ROLE_VALUES_SQL})", name="role_valid"),
+        # Only CSO / admin accounts may have no facility.
         CheckConstraint(
-            "role = 'cso' OR facility_id IS NOT NULL", name="officer_has_facility"
+            f"role = '{Role.CSO.value}' OR is_admin OR facility_id IS NOT NULL",
+            name="facility_required_unless_global",
         ),
     )
 
     @validates("officer_code")
     def _normalize_code(self, _key: str, value: str) -> str:
         return normalize_code(value)
+
+    @property
+    def sees_all_facilities(self) -> bool:
+        """CSO and admins are not scoped to a single facility."""
+        return self.is_admin or self.role == Role.CSO
 
 
 class OfficerSession(Base):
@@ -191,6 +230,9 @@ class Truck(TimestampMixin, Base):
         UniqueConstraint(
             "facility_id", "plate_number", name="uq_trucks_facility_id_plate_number"
         ),
+        # Target for the composite FK on truck_entries (Postgres requires the
+        # referenced column pair to be unique, even though id alone already is).
+        UniqueConstraint("facility_id", "id", name="uq_trucks_facility_id_id"),
     )
 
     @validates("plate_number")
@@ -207,9 +249,8 @@ class TruckEntry(EntryMixin, TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4
     )  # supplied by the phone
-    truck_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("trucks.id", ondelete="RESTRICT"), nullable=False
-    )
+    # FK is the composite one in __table_args__ (facility_id + truck_id).
+    truck_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     plate_number: Mapped[str] = mapped_column(String(20), nullable=False)
     driver_name: Mapped[str] = mapped_column(String(150), nullable=False)
     driver_phone: Mapped[Optional[str]] = mapped_column(
@@ -220,6 +261,12 @@ class TruckEntry(EntryMixin, TimestampMixin, Base):
     )
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["facility_id", "truck_id"],
+            ["trucks.facility_id", "trucks.id"],
+            ondelete="RESTRICT",
+            name="fk_truck_entries_facility_truck",
+        ),
         CheckConstraint(
             "scm_purchased IS NULL OR scm_purchased >= 0", name="scm_non_negative"
         ),
@@ -300,6 +347,8 @@ class Staff(TimestampMixin, Base):
         UniqueConstraint(
             "facility_id", "staff_code", name="uq_staff_facility_id_staff_code"
         ),
+        # Target for the composite FK on staff_entries.
+        UniqueConstraint("facility_id", "id", name="uq_staff_facility_id_id"),
     )
 
     @validates("staff_code")
@@ -312,11 +361,16 @@ class StaffEntry(EntryMixin, TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4)
-    staff_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("staff.id", ondelete="RESTRICT"), nullable=False
-    )
+    # FK is the composite one in __table_args__ (facility_id + staff_id).
+    staff_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["facility_id", "staff_id"],
+            ["staff.facility_id", "staff.id"],
+            ondelete="RESTRICT",
+            name="fk_staff_entries_facility_staff",
+        ),
         Index("ix_staff_entries_facility_signed_in",
               "facility_id", "signed_in_at"),
         Index("ix_staff_entries_facility_updated",
