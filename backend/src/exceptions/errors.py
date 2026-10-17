@@ -92,3 +92,13 @@ class MustChangePinError(AuthError):
     """Temp PIN still active: the client must call /auth/change-pin first."""
     code = "must_change_pin"
     message = "You must set a new PIN before continuing."
+
+
+class TruckAlreadyInsideError(ConflictError):
+    code = "truck_already_inside"
+    message = "That truck is already inside. Sign it out first."
+
+
+class InvalidSignatureError(DomainError):
+    code = "invalid_signature"
+    message = "Signature image is invalid."

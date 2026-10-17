@@ -19,6 +19,7 @@ load_dotenv()
 class Settings:
 
     DATABASE_URL = _normalize_db_url(os.getenv('DATABASE_URL'))
+    TEST_DATABASE_URL = os.getenv('TEST_DATABASE_URL')
 
     CORS_ORIGINS = tuple(
         o.strip()
@@ -47,6 +48,10 @@ class Settings:
     @classmethod
     def require_database(cls) -> str:
         return cls._require('DATABASE_URL')
+
+    @classmethod
+    def require_test_database(cls) -> str:
+        return cls._require('TEST_DATABASE_URL')
 
     @classmethod
     def require_jwt_secret(cls) -> str:

@@ -8,13 +8,14 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.src.api.routes import admin, auth, super_admin
+from backend.src.api.routes import admin, auth, super_admin, trucks
 from backend.src.config.settings import Settings
 from backend.src.exceptions.errors import (
     AccountLockedError,
     AuthError,
     ConflictError,
     DomainError,
+    InvalidSignatureError,
     MustChangePinError,
     NotFoundError,
     PermissionDeniedError,
@@ -42,7 +43,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(super_admin.router, prefix="/api")
-
+app.include_router(trucks.router, prefix="/api")
 
 STATUS_RULES: tuple[tuple[type[DomainError], int], ...] = (
     (PermissionDeniedError, 403),
@@ -50,8 +51,9 @@ STATUS_RULES: tuple[tuple[type[DomainError], int], ...] = (
     (AccountLockedError, 429),
     (AuthError, 401),
     (NotFoundError, 404),
-    (ConflictError, 409),
+    (ConflictError, 409),          # also covers TruckAlreadyInsideError
     (WeakPinError, 422),
+    (InvalidSignatureError, 422),
 )
 
 
