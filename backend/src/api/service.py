@@ -17,12 +17,13 @@ Session policy (deliberate, for an OFFLINE-FIRST app):
 
 from __future__ import annotations
 
-
+import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from backend.src.api.schemas import LoginResult, RefreshResult
 from backend.src.config.settings import Settings
 from backend.src.db.orm._helpers import normalize_code
 from backend.src.db.orm.tables import Facility, Officer, OfficerSession
@@ -31,11 +32,13 @@ from backend.src.exceptions.errors import (
     InvalidCredentialsError,
     InvalidTokenError,
     SessionRevokedError,
+    WeakPinError,
 )
 from backend.src.security.passwords import (
     burn_verify_time,
     hash_pin,
     needs_rehash,
+    validate_pin_policy,
     verify_pin,
 )
 from backend.src.security.tokens import (
@@ -44,7 +47,6 @@ from backend.src.security.tokens import (
     new_refresh_token,
     utcnow,
 )
-from backend.src.api.schemas import LoginResult, RefreshResult
 
 
 def assert_session_usable(
@@ -189,3 +191,65 @@ def revoke_refresh_token(
     if session is not None and session.revoked_at is None:
         session.revoked_at = now
         db.commit()
+
+
+def _register_failed_pin(db: Session, officer: Officer, now: datetime) -> None:
+    """Count a wrong PIN and lock the account at the limit. Commits first so
+    the counter survives the exception the caller raises next."""
+    officer.failed_pin_attempts += 1
+    if officer.failed_pin_attempts >= Settings.MAX_PIN_ATTEMPTS:
+        officer.locked_until = now + \
+            timedelta(minutes=Settings.LOCKOUT_MINUTES)
+        officer.failed_pin_attempts = 0
+        db.commit()
+        raise AccountLockedError(Settings.LOCKOUT_MINUTES * 60)
+    db.commit()
+
+
+def change_pin(
+    db: Session,
+    *,
+    officer_id: uuid.UUID,
+    session_id: uuid.UUID,
+    current_pin: str,
+    new_pin: str,
+    now: datetime | None = None,
+) -> None:
+    """Set a new PIN, clear must_change_pin, and sign out every OTHER phone.
+    The current PIN is re-checked (with lockout) so a stolen access token alone
+    cannot take over the account."""
+    now = now or utcnow()
+    officer = db.scalar(
+        select(Officer).where(Officer.id == officer_id).with_for_update())
+    if officer is None or not officer.is_active:
+        raise SessionRevokedError()
+
+    if officer.locked_until is not None and officer.locked_until > now:
+        raise AccountLockedError(
+            int((officer.locked_until - now).total_seconds()) + 1)
+
+    if not verify_pin(current_pin, officer.pin_hash):
+        _register_failed_pin(db, officer, now)  # raises if it locks
+        raise InvalidCredentialsError("Current PIN is incorrect.")
+
+    try:
+        validate_pin_policy(new_pin)
+    except ValueError as exc:
+        raise WeakPinError(str(exc)) from exc
+    if verify_pin(new_pin, officer.pin_hash):
+        raise WeakPinError("New PIN must be different from the current one.")
+
+    officer.pin_hash = hash_pin(new_pin)
+    officer.must_change_pin = False
+    officer.failed_pin_attempts = 0
+    officer.locked_until = None
+    db.execute(
+        update(OfficerSession)
+        .where(
+            OfficerSession.officer_id == officer.id,
+            OfficerSession.id != session_id,
+            OfficerSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    db.commit()

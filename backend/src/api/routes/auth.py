@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from backend.src.api import service
+from backend.src.api.deps import get_session_officer
 from backend.src.api.schemas import (
+    ChangePinRequest,
     CurrentOfficer,
     LoginRequest,
     LoginResponse,
@@ -21,7 +23,6 @@ from backend.src.api.schemas import (
     RefreshRequest,
     RefreshResponse,
 )
-from backend.src.api.deps import get_current_officer
 from backend.src.db.orm.tables import Facility, Officer
 from backend.src.db.session import get_db
 
@@ -64,13 +65,32 @@ def logout(body: LogoutRequest, db: Session = Depends(get_db)) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# me and change-pin use get_session_officer (NOT get_current_officer) so an
+# officer on a temp PIN can still reach them.
+
 @router.get("/me", response_model=OfficerProfile)
 def me(
-    current: CurrentOfficer = Depends(get_current_officer),
+    current: CurrentOfficer = Depends(get_session_officer),
     db: Session = Depends(get_db),
 ) -> OfficerProfile:
     officer = db.get(Officer, current.officer_id)
-    assert officer is not None  # get_current_officer just loaded it
+    assert officer is not None  # get_session_officer just loaded it
     facility = db.get(
         Facility, current.facility_id) if current.facility_id else None
     return OfficerProfile.build(officer, facility)
+
+
+@router.post("/change-pin", status_code=status.HTTP_204_NO_CONTENT)
+def change_pin(
+    body: ChangePinRequest,
+    current: CurrentOfficer = Depends(get_session_officer),
+    db: Session = Depends(get_db),
+) -> Response:
+    service.change_pin(
+        db,
+        officer_id=current.officer_id,
+        session_id=current.session_id,
+        current_pin=body.current_pin,
+        new_pin=body.new_pin,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

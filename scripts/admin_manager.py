@@ -3,8 +3,8 @@
 
 """Create an admin account. This is the ONLY way is_admin ever becomes true.
 
-    python -m scripts.create_admin --code ADMIN-01 --name "Terry Fregene"
-    python -m scripts.create_admin --code ADMIN-01 --name "Terry Fregene" --facility CNG-BEN-01
+    python -m scripts.admin_manager --code ADMIN-01 --name "Terry Fregene"
+    python -m scripts.admin_manager --code ADMIN-01 --name "Terry Fregene" --facility CNG-BEN-01
 
 Without --facility the admin is a global account (facility_id NULL) and logs in
 with no facility code. With --facility the admin also belongs to that station,

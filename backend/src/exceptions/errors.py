@@ -1,4 +1,5 @@
 
+
 # backend/src/exceptions/errors.py
 
 from __future__ import annotations
@@ -13,19 +14,41 @@ class EnvVariableError(TetracoreLogError):
 
 
 # --------------------------------------------------------------------------
-# Auth errors. Each carries a machine-readable `code` the phone app can switch
-# on (e.g. refresh on token_expired, force re-login on session_revoked).
-# The HTTP status mapping lives in the api layer, not here.
+# Domain errors. Each carries a machine-readable `code` the phone app can
+# switch on. The HTTP status mapping lives in the api layer (main.py).
 # --------------------------------------------------------------------------
 
 
-class AuthError(TetracoreLogError):
-    code = "auth_error"
-    message = "Authentication failed."
+class DomainError(TetracoreLogError):
+    code = "error"
+    message = "Request failed."
 
     def __init__(self, message: str | None = None) -> None:
         self.message = message or self.message
         super().__init__(self.message)
+
+
+class NotFoundError(DomainError):
+    code = "not_found"
+    message = "Not found."
+
+
+class ConflictError(DomainError):
+    code = "conflict"
+    message = "That already exists."
+
+
+class WeakPinError(DomainError):
+    code = "weak_pin"
+    message = "PIN does not meet the policy."
+
+
+# ---- auth ----
+
+
+class AuthError(DomainError):
+    code = "auth_error"
+    message = "Authentication failed."
 
 
 class InvalidCredentialsError(AuthError):
@@ -63,3 +86,9 @@ class SessionRevokedError(AuthError):
 class PermissionDeniedError(AuthError):
     code = "forbidden"
     message = "You do not have permission to do that."
+
+
+class MustChangePinError(AuthError):
+    """Temp PIN still active: the client must call /auth/change-pin first."""
+    code = "must_change_pin"
+    message = "You must set a new PIN before continuing."

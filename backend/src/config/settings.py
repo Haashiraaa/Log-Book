@@ -8,11 +8,10 @@ from __future__ import annotations
 
 import os
 
-
 from dotenv import load_dotenv
 
+from backend.src.config._helpers import _int_env, _normalize_db_url
 from backend.src.exceptions.errors import EnvVariableError
-from backend.src.config._helpers import _normalize_db_url, _int_env
 
 load_dotenv()
 

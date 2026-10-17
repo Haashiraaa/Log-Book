@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 from functools import lru_cache
 
 from argon2 import PasswordHasher
@@ -49,6 +50,17 @@ def validate_pin_policy(pin: str) -> None:
     steps = {b - a for a, b in zip(digits, digits[1:])}
     if steps in ({1}, {-1}):
         raise ValueError("PIN cannot be a straight run like 123456.")
+
+
+def generate_temp_pin(length: int = 6) -> str:
+    """Random numeric PIN that passes validate_pin_policy."""
+    while True:
+        pin = "".join(secrets.choice("0123456789") for _ in range(length))
+        try:
+            validate_pin_policy(pin)
+        except ValueError:
+            continue
+        return pin
 
 
 def hash_pin(pin: str) -> str:

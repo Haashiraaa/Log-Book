@@ -39,7 +39,6 @@ from typing import Optional
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
-    Enum as SAEnum,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -51,13 +50,15 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy import (
+    Enum as SAEnum,
+)
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
-from backend.src.db.orm._helpers import normalize_code, normalize_plate, enum_values
+from backend.src.db.orm._helpers import enum_values, normalize_code, normalize_plate
 from backend.src.db.orm._mixins import EntryMixin, TimestampMixin
 from backend.src.db.orm.base import Base
 from backend.src.models import Role
-
 
 # Built from the enum, so the CHECK constraint can never drift from Role.
 _ROLE_VALUES_SQL = ", ".join(f"'{r.value}'" for r in Role)
@@ -75,6 +76,9 @@ class Facility(TimestampMixin, Base):
         Uuid, primary_key=True, default=uuid.uuid4)
     code: Mapped[str] = mapped_column(
         String(32), nullable=False)  # e.g. CNG-BEN-01
+    next_officer_seq: Mapped[int] = mapped_column(
+        Integer, default=1, server_default=text("1"), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     is_active: Mapped[bool] = mapped_column(
         default=True, server_default=text("true"), nullable=False
@@ -129,6 +133,9 @@ class Officer(TimestampMixin, Base):
     )
     is_active: Mapped[bool] = mapped_column(
         default=True, server_default=text("true"), nullable=False
+    )
+    must_change_pin: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false"), nullable=False
     )
     failed_pin_attempts: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False

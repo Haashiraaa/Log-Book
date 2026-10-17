@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from importlib.util import find_spec
+
 from backend.src.exceptions.errors import EnvVariableError
 
 

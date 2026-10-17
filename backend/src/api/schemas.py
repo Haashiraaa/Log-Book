@@ -2,18 +2,17 @@
 
 # backend/src/api/schemas.py
 
-
 from __future__ import annotations
-from backend.src.db.orm.tables import Facility, Officer
-from pydantic import BaseModel, Field
-from datetime import datetime
 
 import uuid
 from dataclasses import dataclass
-from backend.src.models import Role
+from datetime import datetime
 from typing import Literal, Optional
 
-# ---- enum models ----
+from pydantic import BaseModel, ConfigDict, Field
+
+from backend.src.db.orm.tables import Facility, Officer
+from backend.src.models import Role
 
 # ---- dataclass models -----
 
@@ -25,6 +24,7 @@ class CurrentOfficer:
     facility_id: uuid.UUID | None
     role: Role
     is_admin: bool
+    must_change_pin: bool
 
     @property
     def sees_all_facilities(self) -> bool:
@@ -49,7 +49,7 @@ class RefreshResult:
     refresh_expires_at: datetime
 
 
-# ---- pydantic models ----
+# ---- pydantic models: auth ----
 
 class LoginRequest(BaseModel):
     # None/absent = global account (CSO or admin with no facility).
@@ -67,6 +67,7 @@ class OfficerProfile(BaseModel):
     role: Role
     is_admin: bool
     sees_all_facilities: bool
+    must_change_pin: bool
     facility_id: uuid.UUID | None
     facility_code: str | None
     facility_name: str | None
@@ -80,6 +81,7 @@ class OfficerProfile(BaseModel):
             role=officer.role,
             is_admin=officer.is_admin,
             sees_all_facilities=officer.sees_all_facilities,
+            must_change_pin=officer.must_change_pin,
             facility_id=officer.facility_id,
             facility_code=facility.code if facility else None,
             facility_name=facility.name if facility else None,
@@ -108,3 +110,54 @@ class RefreshResponse(BaseModel):
 
 class LogoutRequest(BaseModel):
     refresh_token: str = Field(min_length=20, max_length=256)
+
+
+class ChangePinRequest(BaseModel):
+    current_pin: str = Field(min_length=1, max_length=64)
+    # Policy (6-10 digits etc.) is enforced in the service -> weak_pin error.
+    new_pin: str = Field(min_length=1, max_length=64)
+
+
+# ---- pydantic models: admin ----
+
+_CODE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9-]*$"
+
+
+class CreateFacilityRequest(BaseModel):
+    code: str = Field(min_length=2, max_length=32, pattern=_CODE_PATTERN)
+    name: str = Field(min_length=2, max_length=200)
+
+
+class FacilityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    name: str
+    is_active: bool
+
+
+class CreateOfficerRequest(BaseModel):
+    facility_code: str = Field(min_length=2, max_length=32)
+    full_name: str = Field(min_length=2, max_length=150)
+
+
+class CreateOfficerResponse(BaseModel):
+    officer: OfficerProfile
+    # Shown ONCE. Only the hash is stored; it cannot be fetched again.
+    temp_pin: str
+
+
+class ResetPinResponse(BaseModel):
+    officer_code: str
+    full_name: str
+    temp_pin: str
+
+
+class AdminOfficerOut(OfficerProfile):
+    is_active: bool
+
+    @classmethod
+    def from_row(cls, officer: Officer, facility: Facility | None) -> AdminOfficerOut:
+        base = OfficerProfile.build(officer, facility)
+        return cls(**base.model_dump(), is_active=officer.is_active)

@@ -24,8 +24,8 @@ from datetime import datetime, timedelta, timezone
 import jwt
 
 from backend.src.config.settings import Settings
-from backend.src.models import AccessClaims
 from backend.src.exceptions.errors import InvalidTokenError, TokenExpiredError
+from backend.src.models import AccessClaims
 
 _ACCESS_TYPE = "access"
 

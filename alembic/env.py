@@ -1,8 +1,8 @@
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from backend.src.config.settings import Settings
 from backend.src.db.orm import tables  # noqa: F401 # type: ignore[reportUnusedImport]
 from backend.src.db.orm.base import Base
