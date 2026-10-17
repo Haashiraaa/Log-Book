@@ -12,11 +12,9 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.src.api.account_ops import (
-    create_account,
-    revoke_all_sessions,
-    temp_pin,
-)
+
+from backend.src.api.account_ops import create_account, revoke_all_sessions
+from backend.src.security.passwords import generate_temp_pin, hash_pin
 from backend.src.db.orm.tables import Facility, Officer
 from backend.src.exceptions.errors import ConflictError, NotFoundError
 from backend.src.models import Role
@@ -104,7 +102,7 @@ def reset_admin_pin(
     db: Session, officer_id: uuid.UUID
 ) -> tuple[Officer, Facility | None, str]:
     officer = _target(db, officer_id, is_admin=True)
-    pin = temp_pin()
+    pin = generate_temp_pin()
     officer.pin_hash = hash_pin(pin)
     officer.must_change_pin = True
     officer.failed_pin_attempts = 0

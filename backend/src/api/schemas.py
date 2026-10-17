@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 from backend.src.db.orm.tables import Facility, Officer
 from backend.src.models import Role, FACILITY_ROLES
@@ -143,6 +143,15 @@ class FacilityOut(BaseModel):
 class CreateOfficerRequest(BaseModel):
     facility_code: str = Field(min_length=2, max_length=32)
     full_name: str = Field(min_length=2, max_length=150)
+    role: Role = Role.OFFICER
+
+    @field_validator("role")
+    @classmethod
+    def _facility_role_only(cls, v: Role) -> Role:
+        if v not in FACILITY_ROLES:
+            raise ValueError(
+                "Admins can only create facility officers or managers.")
+        return v
 
 
 class CreateOfficerResponse(BaseModel):

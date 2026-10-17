@@ -61,7 +61,8 @@ def create_officer(
     db: Session = Depends(get_db),
 ) -> CreateOfficerResponse:
     officer, facility, temp_pin = admin_service.create_officer(
-        db, facility_code=body.facility_code, full_name=body.full_name
+        db, facility_code=body.facility_code,
+        full_name=body.full_name, role=body.role
     )
     response.headers["Cache-Control"] = "no-store"  # response holds a PIN
     return CreateOfficerResponse(

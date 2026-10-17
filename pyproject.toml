@@ -40,6 +40,9 @@ include = ["backend*", "scripts*"]
 testpaths = ["tests"]
 pythonpath = ["."]
 
+[project.scripts]
+tetracore-log = "backend.src.main:serve"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
@@ -47,6 +50,9 @@ extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Security"]
 
 [tool.pyright]
 include = ["backend", "scripts", "tests"]

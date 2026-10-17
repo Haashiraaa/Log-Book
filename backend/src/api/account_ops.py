@@ -7,7 +7,6 @@ Deliberately does NOT import security/accounts.py (CLI-only)."""
 
 from __future__ import annotations
 
-import secrets
 import uuid
 
 from sqlalchemy import select, update
@@ -18,19 +17,8 @@ from backend.src.db.orm._helpers import normalize_code
 from backend.src.db.orm.tables import Counter, Facility, Officer, OfficerSession
 from backend.src.exceptions.errors import NotFoundError
 from backend.src.models import CODE_PREFIX, FACILITY_ROLES, Role
-from backend.src.security.passwords import hash_pin, validate_pin_policy
+from backend.src.security.passwords import generate_temp_pin, hash_pin
 from backend.src.security.tokens import utcnow
-
-
-def temp_pin() -> str:
-    """Random 6 digits that also pass the PIN policy (no 123456, 111111...)."""
-    while True:
-        pin = f"{secrets.randbelow(10**6):06d}"
-        try:
-            validate_pin_policy(pin)
-        except ValueError:
-            continue
-        return pin
 
 
 def revoke_all_sessions(db: Session, officer_id: uuid.UUID) -> None:
@@ -42,16 +30,13 @@ def revoke_all_sessions(db: Session, officer_id: uuid.UUID) -> None:
     )
 
 
-def _next_facility_code(db: Session, facility_id: uuid.UUID, prefix: str) -> str:
-    locked = db.scalar(
-        select(Facility).where(Facility.id == facility_id).with_for_update())
-    assert locked is not None
+def _next_facility_code(db: Session, facility: Facility, prefix: str) -> str:
     while True:
-        seq = locked.next_officer_seq
-        locked.next_officer_seq = seq + 1
+        seq = facility.next_officer_seq
+        facility.next_officer_seq = seq + 1
         code = f"{prefix}-{seq:03d}"
         taken = db.scalar(select(Officer.id).where(
-            Officer.facility_id == facility_id, Officer.officer_code == code))
+            Officer.facility_id == facility.id, Officer.officer_code == code))
         if taken is None:
             return code
 
@@ -87,16 +72,19 @@ def create_account(
     if role in FACILITY_ROLES:
         if not facility_code:
             raise NotFoundError("Facility not found.")
-        facility = db.scalar(select(Facility).where(
-            Facility.code == normalize_code(facility_code),
-            Facility.is_active.is_(True)))
+        facility = db.scalar(
+            select(Facility)
+            .where(Facility.code == normalize_code(facility_code),
+                   Facility.is_active.is_(True))
+            .with_for_update()
+            .execution_options(populate_existing=True))
         if facility is None:
             raise NotFoundError("Facility not found.")
-        code = _next_facility_code(db, facility.id, CODE_PREFIX[role])
+        code = _next_facility_code(db, facility, CODE_PREFIX[role])
     else:
         code = _next_global_code(db, CODE_PREFIX[role])
 
-    pin = temp_pin()
+    pin = generate_temp_pin()
     officer = Officer(
         facility_id=facility.id if facility else None,
         officer_code=code,

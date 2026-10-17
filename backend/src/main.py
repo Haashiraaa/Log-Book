@@ -5,7 +5,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
+from contextlib import asynccontextmanager
 from backend.src.api.routes import admin, auth, super_admin
 from backend.src.config.settings import Settings
 from backend.src.exceptions.errors import (
@@ -19,7 +19,15 @@ from backend.src.exceptions.errors import (
     WeakPinError,
 )
 
-app = FastAPI(title="Tetracore Log", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    Settings.require_jwt_secret()
+    Settings.require_pin_pepper()
+    yield
+
+
+app = FastAPI(title="Tetracore Log", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,20 +41,23 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(super_admin.router, prefix="/api")
 
-STATUS_CODE_MAP: dict[type[DomainError], int] = {
-    PermissionDeniedError: 403,
-    MustChangePinError: 403,
-    AccountLockedError: 429,
-    AuthError: 401,
-    NotFoundError: 404,
-    ConflictError: 409,
-    WeakPinError: 422,
 
-}
+STATUS_RULES: tuple[tuple[type[DomainError], int], ...] = (
+    (PermissionDeniedError, 403),
+    (MustChangePinError, 403),
+    (AccountLockedError, 429),
+    (AuthError, 401),
+    (NotFoundError, 404),
+    (ConflictError, 409),
+    (WeakPinError, 422),
+)
 
 
 def _status_for(exc: DomainError) -> int:
-    return STATUS_CODE_MAP.get(type(exc)) or 400
+    for cls, status_code in STATUS_RULES:
+        if isinstance(exc, cls):
+            return status_code
+    return 400
 
 
 @app.exception_handler(DomainError)

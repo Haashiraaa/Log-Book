@@ -30,6 +30,7 @@ from backend.src.models import Role
 from backend.src.security.accounts import create_officer, find_officer
 from backend.src.security.passwords import hash_pin, validate_pin_policy
 from backend.src.security.tokens import utcnow
+from backend.src.api.account_ops import revoke_all_sessions
 
 
 def _prompt_pin() -> str | None:
@@ -45,15 +46,6 @@ def _active_super_admins(db: Session) -> int:
         select(func.count()).select_from(Officer).where(
             Officer.is_super_admin.is_(True), Officer.is_active.is_(True))
     ) or 0
-
-
-def _revoke_all_sessions(db: Session, officer_id) -> None:
-    db.execute(
-        update(OfficerSession)
-        .where(OfficerSession.officer_id == officer_id,
-               OfficerSession.revoked_at.is_(None))
-        .values(revoked_at=utcnow())
-    )
 
 
 def cmd_create(db: Session, args: argparse.Namespace) -> int:
@@ -116,7 +108,7 @@ def cmd_reset_pin(db: Session, args: argparse.Namespace) -> int:
     officer.must_change_pin = False
     officer.failed_pin_attempts = 0
     officer.locked_until = None
-    _revoke_all_sessions(db, officer.id)
+    revoke_all_sessions(db, officer.id)
     db.commit()
     print(f"PIN reset for {officer.officer_code}; all sessions revoked.")
     return 0
