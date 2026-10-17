@@ -73,6 +73,7 @@ def get_session_officer(
         facility_id=officer.facility_id,
         role=officer.role,
         is_admin=officer.is_admin,
+        is_super_admin=officer.is_super_admin,
         must_change_pin=officer.must_change_pin,
     )
 
@@ -106,7 +107,15 @@ def require_gate_officer(
     return current
 
 
+def require_super_admin(
+    current: CurrentOfficer = Depends(get_current_officer),
+) -> CurrentOfficer:
+    if not current.is_super_admin:
+        raise PermissionDeniedError()
+    return current
+
 # ---- facility scoping (reads) ----
+
 
 def get_facility_scope(
     current: CurrentOfficer = Depends(get_current_officer),

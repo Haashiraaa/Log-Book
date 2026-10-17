@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.src.db.orm.tables import Facility, Officer
-from backend.src.models import Role
+from backend.src.models import Role, FACILITY_ROLES
 
 # ---- dataclass models -----
 
@@ -24,6 +24,7 @@ class CurrentOfficer:
     facility_id: uuid.UUID | None
     role: Role
     is_admin: bool
+    is_super_admin: bool
     must_change_pin: bool
 
     @property
@@ -66,6 +67,7 @@ class OfficerProfile(BaseModel):
     full_name: str
     role: Role
     is_admin: bool
+    is_super_admin: bool
     sees_all_facilities: bool
     must_change_pin: bool
     facility_id: uuid.UUID | None
@@ -80,6 +82,7 @@ class OfficerProfile(BaseModel):
             full_name=officer.full_name,
             role=officer.role,
             is_admin=officer.is_admin,
+            is_super_admin=officer.is_super_admin,
             sees_all_facilities=officer.sees_all_facilities,
             must_change_pin=officer.must_change_pin,
             facility_id=officer.facility_id,
@@ -161,3 +164,35 @@ class AdminOfficerOut(OfficerProfile):
     def from_row(cls, officer: Officer, facility: Facility | None) -> AdminOfficerOut:
         base = OfficerProfile.build(officer, facility)
         return cls(**base.model_dump(), is_active=officer.is_active)
+
+# ---- super admin ----
+
+
+class CreateAdminRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=150)
+    role: Role
+    facility_code: Optional[str] = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _facility_matches_role(self) -> "CreateAdminRequest":
+        needs = self.role in FACILITY_ROLES
+        has = bool(self.facility_code and self.facility_code.strip())
+        if needs and not has:
+            raise ValueError("facility_code is required for this role.")
+        if not needs and has:
+            raise ValueError("This role is global; leave facility_code empty.")
+        return self
+
+
+class AdminSummary(OfficerProfile):
+    is_active: bool
+
+    @classmethod
+    def from_officer(cls, officer: Officer, facility: Facility | None) -> "AdminSummary":
+        base = OfficerProfile.build(officer, facility)
+        return cls(**base.model_dump(), is_active=officer.is_active)
+
+
+class TempPinResponse(BaseModel):
+    officer: AdminSummary
+    temp_pin: str  # shown ONCE. Hand it over in person.

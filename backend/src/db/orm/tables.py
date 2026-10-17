@@ -58,10 +58,12 @@ from sqlalchemy.orm import Mapped, mapped_column, validates
 from backend.src.db.orm._helpers import enum_values, normalize_code, normalize_plate
 from backend.src.db.orm._mixins import EntryMixin, TimestampMixin
 from backend.src.db.orm.base import Base
-from backend.src.models import Role
+from backend.src.models import GLOBAL_ROLES, Role
 
-# Built from the enum, so the CHECK constraint can never drift from Role.
 _ROLE_VALUES_SQL = ", ".join(f"'{r.value}'" for r in Role)
+_GLOBAL_ROLE_VALUES_SQL = ", ".join(
+    f"'{r.value}'" for r in sorted(GLOBAL_ROLES, key=lambda r: r.value)
+)
 
 
 # --------------------------------------------------------------------------
@@ -114,13 +116,11 @@ class Officer(TimestampMixin, Base):
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     pin_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[Role] = mapped_column(
-        # native_enum=False -> plain VARCHAR. A native Postgres ENUM is painful
-        # to change later (ALTER TYPE cannot run inside a migration transaction).
         SAEnum(
             Role,
             name="officer_role",
             native_enum=False,
-            length=16,
+            length=32,                      # was 16
             values_callable=enum_values,
             validate_strings=True,
         ),
@@ -131,11 +131,16 @@ class Officer(TimestampMixin, Base):
     is_admin: Mapped[bool] = mapped_column(
         default=False, server_default=text("false"), nullable=False
     )
-    is_active: Mapped[bool] = mapped_column(
-        default=True, server_default=text("true"), nullable=False
+    # Only ever set from the CLI (scripts/super_admin_manager.py). No API route
+    # may set, clear, or act on an account where this is true.
+    is_super_admin: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false"), nullable=False
     )
     must_change_pin: Mapped[bool] = mapped_column(
         default=False, server_default=text("false"), nullable=False
+    )
+    is_active: Mapped[bool] = mapped_column(
+        default=True, server_default=text("true"), nullable=False
     )
     failed_pin_attempts: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0"), nullable=False
@@ -148,8 +153,6 @@ class Officer(TimestampMixin, Base):
         UniqueConstraint(
             "facility_id", "officer_code", name="uq_officers_facility_id_officer_code"
         ),
-        # NULL facility_id rows (CSO / admins) are "distinct" to Postgres, so the
-        # constraint above does not protect them. This partial index does.
         Index(
             "uq_officers_global_officer_code",
             "officer_code",
@@ -157,10 +160,14 @@ class Officer(TimestampMixin, Base):
             postgresql_where=text("facility_id IS NULL"),
         ),
         CheckConstraint(f"role IN ({_ROLE_VALUES_SQL})", name="role_valid"),
-        # Only CSO / admin accounts may have no facility.
+        # Depends on ROLE only, never on is_admin, so removing admin powers can
+        # never leave a row that violates this.
         CheckConstraint(
-            f"role = '{Role.CSO.value}' OR is_admin OR facility_id IS NOT NULL",
+            f"role IN ({_GLOBAL_ROLE_VALUES_SQL}) OR facility_id IS NOT NULL",
             name="facility_required_unless_global",
+        ),
+        CheckConstraint(
+            "NOT is_super_admin OR is_admin", name="super_admin_requires_admin"
         ),
     )
 
@@ -209,6 +216,17 @@ class OfficerSession(Base):
         Index("ix_officer_sessions_officer_id", "officer_id"),
     )
 
+
+class Counter(Base):
+    """Locked-row sequences for codes that have no facility to count under
+    (e.g. 'officer_code:CSO'). Row is locked FOR UPDATE while issuing."""
+
+    __tablename__ = "counters"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    next_value: Mapped[int] = mapped_column(
+        Integer, default=1, server_default=text("1"), nullable=False
+    )
 
 # --------------------------------------------------------------------------
 # Trucks
