@@ -47,7 +47,7 @@ def validate_pin_policy(pin: str) -> None:
     if len(set(pin)) == 1:
         raise ValueError("PIN cannot be a single repeated digit.")
     digits = [int(c) for c in pin]
-    steps = {b - a for a, b in zip(digits, digits[1:])}
+    steps = {b - a for a, b in zip(digits, digits[1:], strict=False)}
     if steps in ({1}, {-1}):
         raise ValueError("PIN cannot be a straight run like 123456.")
 

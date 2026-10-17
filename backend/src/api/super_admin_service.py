@@ -12,13 +12,11 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-
 from backend.src.api.account_ops import create_account, revoke_all_sessions
-from backend.src.security.passwords import generate_temp_pin, hash_pin
 from backend.src.db.orm.tables import Facility, Officer
 from backend.src.exceptions.errors import ConflictError, NotFoundError
 from backend.src.models import Role
-from backend.src.security.passwords import hash_pin
+from backend.src.security.passwords import generate_temp_pin, hash_pin
 
 
 def _target(db: Session, officer_id: uuid.UUID, *, is_admin: bool) -> Officer:

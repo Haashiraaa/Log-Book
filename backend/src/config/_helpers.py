@@ -36,5 +36,6 @@ def _int_env(name: str, default: int) -> int:
         return default
     try:
         return int(raw)
-    except ValueError:
-        raise EnvVariableError(f"{name} must be an integer, got {raw!r}.")
+    except ValueError as exc:
+        raise EnvVariableError(
+            f"{name} must be an integer, got {raw!r}.") from exc

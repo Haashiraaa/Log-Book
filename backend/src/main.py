@@ -2,10 +2,12 @@
 
 # backend/src/main.py
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
+
 from backend.src.api.routes import admin, auth, super_admin
 from backend.src.config.settings import Settings
 from backend.src.exceptions.errors import (

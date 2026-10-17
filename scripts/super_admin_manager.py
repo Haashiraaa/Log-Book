@@ -21,16 +21,15 @@ import argparse
 import getpass
 import sys
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.src.db.orm.tables import Facility, Officer, OfficerSession
+from backend.src.api.account_ops import revoke_all_sessions
+from backend.src.db.orm.tables import Facility, Officer
 from backend.src.db.session import create_session
 from backend.src.models import Role
 from backend.src.security.accounts import create_officer, find_officer
 from backend.src.security.passwords import hash_pin, validate_pin_policy
-from backend.src.security.tokens import utcnow
-from backend.src.api.account_ops import revoke_all_sessions
 
 
 def _prompt_pin() -> str | None:

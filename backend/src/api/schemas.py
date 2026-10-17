@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.src.db.orm.tables import Facility, Officer
-from backend.src.models import Role, FACILITY_ROLES
+from backend.src.models import FACILITY_ROLES, Role
 
 # ---- dataclass models -----
 

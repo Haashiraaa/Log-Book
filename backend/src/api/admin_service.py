@@ -27,7 +27,6 @@ from backend.src.exceptions.errors import (
 from backend.src.models import FACILITY_ROLES, Role
 from backend.src.security.passwords import generate_temp_pin, hash_pin
 
-
 # ---- facilities ----
 
 def create_facility(db: Session, *, code: str, name: str) -> Facility:
